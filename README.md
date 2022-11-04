@@ -5,7 +5,7 @@ This script is for Pokémon Essentials. The player select a pokémon for a simpl
 ![](Screens/screen.png)
 
 ## Compatibility
-Doesn't work on Essentials versions 18 and newer
+Doesn't work on Essentials versions 17.2 or older
 
 ## Installation
 Follow the [Script](/Script.rb) instructions. The sample script files are in [Files folder](/Files).

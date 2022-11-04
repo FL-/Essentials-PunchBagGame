@@ -75,11 +75,8 @@ class PunchBagScene
     @sprites["punchbag"].y=-38
     @sprites["pokemonback"]=PokemonSprite.new(@viewport)
     @sprites["pokemonback"].setPokemonBitmap(pkmn,true) 
-    pbPositionPokemonSprite(@sprites["pokemonback"],
-        @sprites["pokemonback"].x,@sprites["pokemonback"].y)    
-    @sprites["pokemonback"].y=adjustBattleSpriteY(
-        @sprites["pokemonback"],pkmn.species,0)  
-    @sprites["pokemonback"].x+= @sprites["punchbag"].x-120-POKEMONDISTANCE
+    @sprites["pokemonback"].setOffset(PictureOrigin::Bottom)    
+    @sprites["pokemonback"].x+= @sprites["punchbag"].x-56-POKEMONDISTANCE
     @sprites["pokemonback"].y+= 228
     @sprites["pokemonback"].z=1
     @sprites["bar"]=IconSprite.new(0,0,@viewport)
@@ -156,7 +153,7 @@ class PunchBagScene
         return @score if !@animating
       else  
         if Input.trigger?(Input::B) && $DEBUG
-          pbSEPlay($data_system.decision_se) 
+          pbPlayCursorSE
           break
         end
         arrowX = @sprites["arrow"].x
@@ -185,7 +182,7 @@ class PunchBagScene
     @shoots+=1
     @endGame = true if @shoots==@rounds
     @score+=@lastScore
-    pbSEPlay(@lastScore==MAXSCORE ? "itemlevel" : $data_system.decision_se)
+    pbSEPlay("Pkmn move learnt") if @lastScore==MAXSCORE
     pbDrawText
     pbDrawStars(@lastScore)
     @lastScore = 0
@@ -254,12 +251,9 @@ class PunchBagScene
         lastScoreFromMax = @lastScore-MAXSCORE
         # SE for hit the bag
         case lastScoreFromMax
-        when -1,0
-          pbSEPlay("superdamage")
-        when -2
-          pbSEPlay("normaldamage")
-        else
-          pbSEPlay("notverydamage")
+          when -1,0;  pbSEPlay("Battle damage super")
+          when -2;    pbSEPlay("Battle damage normal")
+          else;       pbSEPlay("Battle damage weak")
         end
         if @nextAngle==0 # If there's no bag animation, compute now
           computeScore
