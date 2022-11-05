@@ -2,307 +2,644 @@
 # * Punch Bag Game - by FL (Credits will be apreciated)
 #===============================================================================
 #
-# This script is for Pokémon Essentials. The player select a pokémon for a 
-# simple minigame where the player get points the most near the center the
-# cursor was when the button was pressed.
+# This script is for Pokémon Essentials. The player select a pokémon for a
+# simple minigame where he gains points the closer to the center the cursor is
+# when the button is pressed. EVs and IVs can be the rewards.
 #
-#===============================================================================
+#== INSTALLATION ===============================================================
 #
-# To this script works, put it above main, put a 512x288 background for this
-# screen in "Graphics/Pictures/punchBagField" location, a 104x256 punchbag at 
-# "Graphics/Pictures/punchBag", a 262x20 bar at "Graphics/Pictures/punchBagBar",
-# a 48x40 star for display points at "Graphics/Pictures/punchBagStar". May
-# works with other image sizes.
-#  
-# To call this script, use the script command 'pbPunchBag(X, Y, Z)' where X
-# is the number of hits, Y is a true/false if the player can cancel the pokémon
-# selection (default is true) and Z is a true/false if only unfainted pokémon
-# is allowed (default is true). This method will return the player score.
+# Put it above main OR convert into a plugin. Create "Punch Bag" folder at 
+# Graphics/Pictures and put the pictures (may works with other sizes):
+# - 262x20  bar
+# - 512x288 bg
+# - 104x256 punchbag 
+# -  48x40  star
+#
+#== HOW TO USE =================================================================
+#
+# Use the script command 'PunchBag.play(X)' where X is the number of rounds OR
+# the Parameters class instance. This method will return the player score or nil
+# if it was cancelled. 
+#
+# Look at Parameters class and/or at examples about how to pass options.
+#
+#== EXAMPLES ===================================================================
+#
+# - 15 rounds without reward:
+#
+#  PunchBag.play(15)
+#
+# - 10 rounds. Receive 2 EVs in all stats if the score is 30 or higher:
+#
+#  PunchBag.play(PunchBag::Parameters.new(10).setMinScore(30).setEvGain(2))
+#
+# - 5 rounds. Receive max ATK IV if the score is 22 or bigger. Accept fainted
+# pokémon, but won't allow pokémon who already was ATK IV maxed or isn't at 
+# level 100.
+#
+#  param = PunchBag::Parameters.new(5)
+#  param.stats = :ATTACK
+#  param.minScore = 22
+#  param.maximizeIV = true
+#  param.acceptFainted = true
+#  param.blockMax = true
+#  param.minLevel = 100
+#  PunchBag.play(param)
 #
 #===============================================================================
 
-class PunchBagScene
-  # Size of the valid bar points between the left and the center
-  BARLEFTSIZE = 128 
-  ARROWSPEED = 16
-  MAXSCORE = 5
-  MINSCORE = 1
+if defined?(PluginManager) && !PluginManager.installed?("Punch Bag Game")
+  PluginManager.register({                                                 
+    :name    => "Punch Bag Game",                                        
+    :version => "1.1",                                                     
+    :link    => "https://www.pokecommunity.com/showthread.php?t=346235",
+    :credits => "FL"
+  })
+end
+
+module PunchBag
+  class Parameters
+    attr_accessor :rounds
+    attr_accessor :canCancel
+    attr_accessor :acceptFainted
+    attr_accessor :blockMax
+    attr_accessor :minLevel
+    attr_accessor :minScore
+    attr_accessor :stats # Should be a symbol or a symbol array
+    attr_accessor :evGain
+    attr_accessor :ivGain
+    attr_accessor :maximizeIV
+
+    def initialize(rounds)
+      @rounds = rounds
+      @canCancel = true
+      @acceptFainted = false
+      @blockMax = false
+      @minLevel = 0
+      @minScore = 0
+      @stats = [
+        :HP, :ATTACK, :DEFENSE, :SPEED, :SPECIAL_ATTACK, :SPECIAL_DEFENSE
+      ]
+      @evGain = 0
+      @ivGain = 0
+      @maximizeIV = false
+    end
     
-  BAGSPEEDARRAY=[2,4,8]
-  BAGANGLESARRAY=[0,16,32,64]
-  POKEMONSPEED=16
-  POKEMONDISTANCE=64
-  WAITANIMATIONFRAME=8
-  
-  def update
-    pbUpdateSpriteHash(@sprites)
-  end
-  
-  def pbStartScene(pkmn,rounds)
-    @sprites={} 
-    @viewport=Viewport.new(0,0,Graphics.width,Graphics.height)
-    @viewport.z=99999
-    @sprites["field"]=IconSprite.new(0,0,@viewport)
-    @sprites["field"].setBitmap("Graphics/Pictures/punchBagField")
-    @sprites["field"].y=-48
-    # An extra background. Used because the first one haven't the screen size, 
-    # so a small part can be seen below window.
-    @sprites["fieldBack"]=IconSprite.new(0,0,@viewport)
-    @sprites["fieldBack"].setBitmap("Graphics/Pictures/punchBagField")
-    @sprites["fieldBack"].y=@sprites["field"].bitmap.height
-    @sprites["fieldBack"].z=@sprites["field"].z-1 # Under Field.
-    @sprites["scorebox"]=Window_AdvancedTextPokemon.new
-    @sprites["scorebox"].viewport=@viewport
-    pbBottomLeftLines(@sprites["scorebox"],2)
-    @sprites["scorebox"].width=160
-    @sprites["scorebox"].z=2
-    @sprites["barbox"]=Window_AdvancedTextPokemon.new
-    @sprites["barbox"].viewport=@viewport
-    pbBottomLeftLines(@sprites["barbox"],2)
-    @sprites["barbox"].x=@sprites["scorebox"].width
-    @sprites["barbox"].width=Graphics.width-@sprites["scorebox"].width
-    @sprites["barbox"].z=2
-    @sprites["starbox"]=Window_AdvancedTextPokemon.new
-    @sprites["starbox"].viewport=@viewport
-    pbBottomLeftLines(@sprites["starbox"],1)
-    @sprites["starbox"].y=@sprites["scorebox"].y-@sprites["starbox"].height
-    @sprites["starbox"].z=2
-    @sprites["punchbag"]=IconSprite.new(0,0,@viewport)  
-    @sprites["punchbag"].setBitmap("Graphics/Pictures/punchBag")
-    @sprites["punchbag"].x=Graphics.width/2
-    # The bag center is the rope
-    @sprites["punchbag"].ox=@sprites["punchbag"].bitmap.width/2 
-    @sprites["punchbag"].y=-38
-    @sprites["pokemonback"]=PokemonSprite.new(@viewport)
-    @sprites["pokemonback"].setPokemonBitmap(pkmn,true) 
-    @sprites["pokemonback"].setOffset(PictureOrigin::Bottom)    
-    @sprites["pokemonback"].x+= @sprites["punchbag"].x-56-POKEMONDISTANCE
-    @sprites["pokemonback"].y+= 228
-    @sprites["pokemonback"].z=1
-    @sprites["bar"]=IconSprite.new(0,0,@viewport)
-    @sprites["bar"].setBitmap("Graphics/Pictures/punchBagBar")
-    @sprites["bar"].x=@sprites["barbox"].x+(
-        @sprites["barbox"].width-@sprites["bar"].bitmap.width)/2
-    @sprites["bar"].y=@sprites["barbox"].y+44
-    arrow=AnimatedBitmap.new("Graphics/Pictures/Arrow")
-    @sprites["bar"].z=3
-    @sprites["arrow"]=BitmapSprite.new(
-        arrow.bitmap.width/2,arrow.bitmap.height/2,@viewport)
-    @sprites["arrow"].bitmap.blt(0,0,arrow.bitmap,Rect.new(
-        0,@sprites["arrow"].bitmap.height,@sprites["arrow"].bitmap.width,
-        @sprites["arrow"].bitmap.height))
-    @sprites["arrow"].z=3
-    @arrowXMiddle = (@sprites["bar"].x-@sprites["arrow"].bitmap.width/2+
-        4+BARLEFTSIZE)
-    @sprites["arrow"].x = @arrowXMiddle-BARLEFTSIZE
-    @sprites["arrow"].y = @sprites["bar"].y-28
-    for i in 0...5
-      @sprites["star#{i}"]=IconSprite.new(0,0,@viewport)
-      @sprites["star#{i}"].setBitmap("Graphics/Pictures/punchBagStar")
-      @sprites["star#{i}"].x=32+(@sprites["star#{i}"].bitmap.width+52)*i
-      @sprites["star#{i}"].y=@sprites["starbox"].y+12
-      @sprites["star#{i}"].z=3
+    def setCanCancel(canCancel)
+      @canCancel = canCancel
+      return self
     end
-    @rounds = rounds
-    pbMakeAllStarsInvisible
-    @sprites["overlay"]=BitmapSprite.new(
-        Graphics.width,Graphics.height,@viewport)
-    @moving=true
-    @right=false
-    @score = 0
-    @lastScore = 0
-    @shoots = 0
-    @endGame=false
-    @nextAngle=0
-    @bagAnimating=false
-    @bagWaitFrame=0
-    @pokemonAnimating=false
-    @pokemonWaitFrame=0
-    @animating=false
-    pbSetSystemFont(@sprites["overlay"].bitmap)
-    pbDrawText
-    pbFadeInAndShow(@sprites) { update }
+    
+    def setAcceptFainted(acceptFainted)
+      @acceptFainted = acceptFainted
+      return self
+    end
+    
+    def setBlockMax(blockMax)
+      @blockMax = blockMax
+      return self
+    end
+    
+    def setMinLevel(minLevel)
+      @minLevel = minLevel
+      return self
+    end
+    
+    def setMinScore(minScore)
+      @minScore = minScore
+      return self
+    end
+    
+    def setStats(stats)
+      @stats = stats
+      return self
+    end
+    
+    def setEvGain(evGain)
+      @evGain = evGain
+      return self
+    end
+    
+    def setIvGain(ivGain)
+      @ivGain = ivGain
+      return self
+    end
+    
+    def setMaximizeIV(maximizeIV)
+      @maximizeIV = maximizeIV
+      return self
+    end
+
+    def statArray
+      return @stats.is_a?(Array) ? @stats : [@stats]
+    end
   end
 
-  def pbDrawText
-    @sprites["scorebox"].text=_INTL("Score: {1} \nHits: {2}/{3}",
-        @score,@shoots,@rounds)
-  end
-  
-  def pbDrawStars(stars)
-    pbMakeAllStarsInvisible
-    for i in 0...stars
-      @sprites["star#{i}"].visible=true
+  class Scene
+    # Size of the valid bar points between the left and the center
+    BAR_LEFT_SIZE = 128 
+    ARROW_SPEED = 16
+    MAX_SCORE = 5
+    MIN_SCORE = 1
+      
+    BAG_SPEED_ARRAY = [2,4,8]
+    BAG_ANGLES_ARRAY = [0,16,32,64]
+    POKEMON_SPEED = 16
+    POKEMON_DISTANCE = 64
+    WAIT_ANIMATION_FRAME = 8
+    
+    def pbStartScene(pkmn,rounds)
+      @sprites={} 
+      @viewport=Viewport.new(0,0,Graphics.width,Graphics.height)
+      @viewport.z=99999
+      @sprites["field"]=IconSprite.new(0,0,@viewport)
+      @sprites["field"].setBitmap("Graphics/Pictures/Punch Bag/bg")
+      @sprites["field"].y=-48
+      # An extra background. Used because the first one haven't the screen size, 
+      # so a small part can be seen below window.
+      @sprites["fieldBack"]=IconSprite.new(0,0,@viewport)
+      @sprites["fieldBack"].setBitmap("Graphics/Pictures/Punch Bag/bg")
+      @sprites["fieldBack"].y=@sprites["field"].bitmap.height
+      @sprites["fieldBack"].z=@sprites["field"].z-1 # Under Field.
+      @sprites["scorebox"]=Window_AdvancedTextPokemon.new
+      @sprites["scorebox"].viewport=@viewport
+      pbBottomLeftLines(@sprites["scorebox"],2)
+      @sprites["scorebox"].width=160
+      @sprites["scorebox"].z=2
+      @sprites["barbox"]=Window_AdvancedTextPokemon.new
+      @sprites["barbox"].viewport=@viewport
+      pbBottomLeftLines(@sprites["barbox"],2)
+      @sprites["barbox"].x=@sprites["scorebox"].width
+      @sprites["barbox"].width=Graphics.width-@sprites["scorebox"].width
+      @sprites["barbox"].z=2
+      @sprites["starbox"]=Window_AdvancedTextPokemon.new
+      @sprites["starbox"].viewport=@viewport
+      pbBottomLeftLines(@sprites["starbox"],1)
+      @sprites["starbox"].y=@sprites["scorebox"].y-@sprites["starbox"].height
+      @sprites["starbox"].z=2
+      @sprites["punchbag"]=IconSprite.new(0,0,@viewport)  
+      @sprites["punchbag"].setBitmap("Graphics/Pictures/Punch Bag/punch_bag")
+      @sprites["punchbag"].x=Graphics.width/2
+      # The bag center is the rope
+      @sprites["punchbag"].ox=@sprites["punchbag"].bitmap.width/2 
+      @sprites["punchbag"].y=-38
+      @sprites["pokemonback"]=PokemonSprite.new(@viewport)
+      @sprites["pokemonback"].setPokemonBitmap(pkmn,true) 
+      Bridge.setPokemonBottomOffset(@sprites["pokemonback"], pkmn)
+      @sprites["pokemonback"].x += @sprites["punchbag"].x-56-POKEMON_DISTANCE
+      @sprites["pokemonback"].y += 228
+      @sprites["pokemonback"].z=1
+      @sprites["bar"]=IconSprite.new(0,0,@viewport)
+      @sprites["bar"].setBitmap("Graphics/Pictures/Punch Bag/bar")
+      @sprites["bar"].x=@sprites["barbox"].x+(
+        @sprites["barbox"].width-@sprites["bar"].bitmap.width
+      )/2
+      @sprites["bar"].y=@sprites["barbox"].y+44
+      arrow=AnimatedBitmap.new("Graphics/Pictures/Arrow")
+      @sprites["bar"].z=3
+      @sprites["arrow"]=BitmapSprite.new(
+        arrow.bitmap.width/2,arrow.bitmap.height/2,@viewport
+      )
+      @sprites["arrow"].bitmap.blt(0,0,arrow.bitmap,Rect.new(
+        0,
+        @sprites["arrow"].bitmap.height,
+        @sprites["arrow"].bitmap.width,
+        @sprites["arrow"].bitmap.height
+      ))
+      @sprites["arrow"].z=3
+      @arrowXMiddle = (
+        @sprites["bar"].x - @sprites["arrow"].bitmap.width/2 + 4 + BAR_LEFT_SIZE
+      )
+      @sprites["arrow"].x = @arrowXMiddle-BAR_LEFT_SIZE
+      @sprites["arrow"].y = @sprites["bar"].y-28
+      for i in 0...5
+        @sprites["star#{i}"]=IconSprite.new(0,0,@viewport)
+        @sprites["star#{i}"].setBitmap("Graphics/Pictures/Punch Bag/star")
+        @sprites["star#{i}"].x=32+(@sprites["star#{i}"].bitmap.width+52)*i
+        @sprites["star#{i}"].y=@sprites["starbox"].y+12
+        @sprites["star#{i}"].z=3
+      end
+      @rounds = rounds
+      pbMakeAllStarsInvisible
+      @sprites["overlay"]=BitmapSprite.new(
+        Graphics.width, Graphics.height, @viewport
+      )
+      @moving=true
+      @right=false
+      @score = 0
+      @lastScore = 0
+      @shoots = 0
+      @endGame=false
+      @nextAngle=0
+      @bagAnimating=false
+      @bagWaitFrame=0
+      @pokemonAnimating=false
+      @pokemonWaitFrame=0
+      @animating=false
+      pbSetSystemFont(@sprites["overlay"].bitmap)
+      pbDrawText
+      pbFadeInAndShow(@sprites) { update }
     end
-  end
-  
-  def pbMakeAllStarsInvisible
-    for i in 0...5
-      @sprites["star#{i}"].visible=false
-    end
-  end  
 
-  def pbMain
-    @frameCount=-1
-    loop do
-      Graphics.update
-      Input.update
-      self.update
-      @frameCount+=1
-      if @endGame
-        return @score if !@animating
-      else  
-        if Input.trigger?(Input::B) && $DEBUG
-          pbPlayCursorSE
-          break
-        end
-        arrowX = @sprites["arrow"].x
-        if Input.trigger?(Input::C) && @lastScore==0
-          @lastScore = BARLEFTSIZE-(arrowX>@arrowXMiddle ? 
-              arrowX-@arrowXMiddle : @arrowXMiddle-arrowX)
-          @lastScore=[(@lastScore-BARLEFTSIZE)/ARROWSPEED+MAXSCORE,MINSCORE].max
-          @sprites["arrow"].visible = false
-        end
-        if @moving
-          if arrowX==@arrowXMiddle-BARLEFTSIZE || 
-              arrowX==@arrowXMiddle+BARLEFTSIZE
-            @right = !@right
+    def pbDrawText
+      @sprites["scorebox"].text = _INTL(
+        "Score: {1} \nHits: {2}/{3}",@score,@shoots,@rounds
+      )
+    end
+    
+    def pbDrawStars(stars)
+      pbMakeAllStarsInvisible
+      for i in 0...stars
+        @sprites["star#{i}"].visible=true
+      end
+    end
+    
+    def pbMakeAllStarsInvisible
+      for i in 0...5
+        @sprites["star#{i}"].visible=false
+      end
+    end  
+
+    def pbMain(canCancel)
+      @frameCount=-1
+      loop do
+        Graphics.update
+        Input.update
+        self.update
+        @frameCount+=1
+        if @endGame
+          return @score if !@animating
+        else  
+          if (
+            Input.trigger?(Input::B) && canCancel && 
+            Bridge.confirmMessage(_INTL("Exit?")){ update }
+          )
+            pbPlayCursorSE
+            break
           end
-          @sprites["arrow"].x+= @right ? ARROWSPEED : -ARROWSPEED
+          arrowX = @sprites["arrow"].x
+          if Input.trigger?(Input::C) && @lastScore==0
+            @lastScore = BAR_LEFT_SIZE - (
+              arrowX>@arrowXMiddle ? arrowX-@arrowXMiddle : @arrowXMiddle-arrowX
+            )
+            @lastScore=[
+              (@lastScore - BAR_LEFT_SIZE)/ARROW_SPEED + MAX_SCORE,MIN_SCORE
+            ].max
+            @sprites["arrow"].visible = false
+          end
+          if @moving
+            if (
+              arrowX==@arrowXMiddle-BAR_LEFT_SIZE || 
+              arrowX==@arrowXMiddle+BAR_LEFT_SIZE
+            )
+              @right = !@right
+            end
+            @sprites["arrow"].x+= @right ? ARROW_SPEED : -ARROW_SPEED
+          end
         end
       end
+      return nil
+    end
+    
+    def update
       updateAnimation
+      pbUpdateSpriteHash(@sprites)
     end
-    return nil
-  end
-  
-  def computeScore
-    # Computes the score at a certain point at the animation.
-    # When the bag stops at air for the first time at that punch
-    @shoots+=1
-    @endGame = true if @shoots==@rounds
-    @score+=@lastScore
-    pbSEPlay("Pkmn move learnt") if @lastScore==MAXSCORE
-    pbDrawText
-    pbDrawStars(@lastScore)
-    @lastScore = 0
-    @scoreComputed = true
-    @sprites["arrow"].visible = true
-  end  
-  
-  def setAnimation
-    lastScoreFromMax = @lastScore-MAXSCORE
-    @nextAngle = case lastScoreFromMax
-    when 0;  BAGANGLESARRAY[3] # Perfect hit
-    when -1; BAGANGLESARRAY[2]
-    when -2; BAGANGLESARRAY[1]
-    else;    BAGANGLESARRAY[0]
-    end
-    lastScoreFromMax==0 ? 64 : 32
-    @bagSpeedIndex = lastScoreFromMax==0 ? 2 : 0
-    @pokemonAnimating=true
-    @pokemonSpeed=POKEMONSPEED
-    @pokemonDestiny=@sprites["pokemonback"].x+POKEMONDISTANCE
-    @scoreComputed=false
-  end  
-  
-  def updateAnimation
-    @animating = @pokemonAnimating || @bagAnimating
-    if !@animating && @lastScore!=0
-      setAnimation
+    
+    def computeScore
+      # Computes the score at a certain point at the animation.
+      # When the bag stops at air for the first time at that punch
+      @shoots+=1
+      @endGame = true if @shoots==@rounds
+      @score+=@lastScore
+      pbSEPlay(Bridge.getAudioName("Pkmn move learnt")) if @lastScore==MAX_SCORE
+      pbDrawText
+      pbDrawStars(@lastScore)
+      @lastScore = 0
+      @scoreComputed = true
+      @sprites["arrow"].visible = true
     end  
-    updateAnimationBag if @bagAnimating
-    updateAnimationPokemon if @pokemonAnimating
-  end  
-  
-  def updateAnimationBag
-    return if @bagWaitFrame>@frameCount
-    angle=@sprites["punchbag"].angle
-    if(angle==@nextAngle)
-      if(@nextAngle==0)
-        if @bagSpeedIndex>0 # Max Score
-          @nextAngle=-BAGANGLESARRAY[-2]
-        else
-          @bagAnimating=false
-        end  
-      else  
-        if (@nextAngle<0) # Reverse direction
-          @nextAngle=BAGANGLESARRAY[-3]
-        else
-          @nextAngle=0
-        end
-        @bagWaitFrame=@frameCount+WAITANIMATIONFRAME
-        computeScore if !@scoreComputed 
+    
+    def setAnimation
+      lastScoreFromMax = @lastScore-MAX_SCORE
+      @nextAngle = case lastScoreFromMax
+      when 0;  BAG_ANGLES_ARRAY[3] # Perfect hit
+      when -1; BAG_ANGLES_ARRAY[2]
+      when -2; BAG_ANGLES_ARRAY[1]
+      else;    BAG_ANGLES_ARRAY[0]
+      end
+      lastScoreFromMax==0 ? 64 : 32
+      @bagSpeedIndex = lastScoreFromMax==0 ? 2 : 0
+      @pokemonAnimating=true
+      @pokemonSpeed=POKEMON_SPEED
+      @pokemonDestiny=@sprites["pokemonback"].x+POKEMON_DISTANCE
+      @scoreComputed=false
+    end  
+    
+    def updateAnimation
+      @animating = @pokemonAnimating || @bagAnimating
+      if !@animating && @lastScore!=0
+        setAnimation
       end  
-    else
-      # Cut the speed to half every time that bag reach at middle
-      @bagSpeedIndex-=1 if angle==0 && @bagSpeedIndex!=0 
-      speed=BAGSPEEDARRAY[@bagSpeedIndex]
-      direction = @nextAngle>angle ? 1 : -1
-      @sprites["punchbag"].angle+=speed*direction
-    end
-  end  
-  
-  def updateAnimationPokemon
-    return if @pokemonWaitFrame>@frameCount
-    @sprites["pokemonback"].x+=@pokemonSpeed
-    if @sprites["pokemonback"].x==@pokemonDestiny
-      if @pokemonSpeed>0 # Set thing to move backward
-        lastScoreFromMax = @lastScore-MAXSCORE
-        # SE for hit the bag
-        case lastScoreFromMax
-          when -1,0;  pbSEPlay("Battle damage super")
-          when -2;    pbSEPlay("Battle damage normal")
-          else;       pbSEPlay("Battle damage weak")
-        end
-        if @nextAngle==0 # If there's no bag animation, compute now
-          computeScore
-        else
-          @bagAnimating=true
-        end
-        @pokemonSpeed/=-2
-        @pokemonDestiny=@sprites["pokemonback"].x-POKEMONDISTANCE
-        @pokemonWaitFrame=@frameCount+WAITANIMATIONFRAME
+      updateAnimationBag if @bagAnimating
+      updateAnimationPokemon if @pokemonAnimating
+    end  
+    
+    def updateAnimationBag
+      return if @bagWaitFrame>@frameCount
+      angle=@sprites["punchbag"].angle
+      if(angle==@nextAngle)
+        if(@nextAngle==0)
+          if @bagSpeedIndex>0 # Max Score
+            @nextAngle=-BAG_ANGLES_ARRAY[-2]
+          else
+            @bagAnimating=false
+          end  
+        else  
+          if (@nextAngle<0) # Reverse direction
+            @nextAngle=BAG_ANGLES_ARRAY[-3]
+          else
+            @nextAngle=0
+          end
+          @bagWaitFrame=@frameCount+WAIT_ANIMATION_FRAME
+          computeScore if !@scoreComputed 
+        end  
       else
-        @pokemonAnimating=false
+        # Cut the speed to half every time that bag reach at middle
+        @bagSpeedIndex-=1 if angle==0 && @bagSpeedIndex!=0 
+        speed=BAG_SPEED_ARRAY[@bagSpeedIndex]
+        direction = @nextAngle>angle ? 1 : -1
+        @sprites["punchbag"].angle+=speed*direction
       end
     end  
-  end  
+    
+    def updateAnimationPokemon
+      return if @pokemonWaitFrame>@frameCount
+      @sprites["pokemonback"].x+=@pokemonSpeed
+      if @sprites["pokemonback"].x==@pokemonDestiny
+        if @pokemonSpeed>0 # Set thing to move backward
+          # SE for hit the bag
+          pbSEPlay(Bridge.getAudioName(getHitSEName(@lastScore-MAX_SCORE)))
+          if @nextAngle==0 # If there's no bag animation, compute now
+            computeScore
+          else
+            @bagAnimating=true
+          end
+          @pokemonSpeed/=-2
+          @pokemonDestiny=@sprites["pokemonback"].x-POKEMON_DISTANCE
+          @pokemonWaitFrame=@frameCount+WAIT_ANIMATION_FRAME
+        else
+          @pokemonAnimating=false
+        end
+      end  
+    end  
+
+    def getHitSEName(lastScoreFromMax)
+      return case lastScoreFromMax
+        when -1,0;  "Battle damage super"
+        when -2;    "Battle damage normal"
+        else;       "Battle damage weak"
+      end
+    end
+    
+    def pbEndScene
+      pbFadeOutAndHide(@sprites) { update }
+      pbDisposeSpriteHash(@sprites)
+      @viewport.dispose
+    end
+  end
+
+  class Screen
+    def initialize(scene)
+      @scene=scene
+    end
+
+    def pbStartScreen(pokemon,rounds,canCancel)
+      @scene.pbStartScene(pokemon,rounds)
+      ret=@scene.pbMain(canCancel)
+      @scene.pbEndScene
+      return ret
+    end
+  end
+
+  def self.play(param)
+    score = nil
+    pkmn = nil
+    param = Parameters.new(param) if param.is_a?(Numeric)
+    pbFadeOutIn(99999){
+      loop do
+        pkmn = promptChoosePokemon(param)
+        break if pkmn || param.canCancel
+      end
+      if pkmn
+        scene=Scene.new
+        screen=Screen.new(scene)
+        score=screen.pbStartScreen(pkmn,param.rounds,param.canCancel)
+      end
+    }
+    giveReward(pkmn, param) if score && param.minScore <= score
+    return score
+  end
+
+  def self.promptChoosePokemon(param)
+    pbChoosePokemon(1,3,proc{ |pkmn| 
+      next (
+        !pkmn.egg? &&
+        (!param.blockMax || !hasMaxedValue?(pkmn, param)) && 
+        (param.acceptFainted || pkmn.hp>0) &&
+        (param.minLevel <= pkmn.level)
+      )
+    })
+    return pbGet(1)==-1 ? nil : Bridge.player.party[pbGet(1)]
+  end
+
+  def self.hasMaxedValue?(pkmn, param)
+    return param.statArray.find{|stat|
+      next (
+        (param.evGain>0 && canIncreaseEV?(pkmn, stat)) || 
+        (param.ivGain>0 && canIncreaseIV?(pkmn, stat)) || 
+        (param.maximizeIV && !hasMaxedIV?(pkmn, stat))
+      )
+    } == nil
+  end
+
+  def self.giveReward(pkmn, param)
+    for stat in param.statArray
+      Bridge.message(_INTL(
+        "{1}'s {2} increased.", pkmn.name, Bridge.getStatName(stat)
+      )) if raiseEV(pkmn, stat, param.evGain) > 0
+      Bridge.message(_INTL(
+        "{1}'s {2} increased.", pkmn.name, Bridge.getStatName(stat)
+      )) if raiseIV(pkmn, stat, param.ivGain) > 0
+      Bridge.message(_INTL(
+        "{1}'s {2} is maxed.", pkmn.name, Bridge.getStatName(stat)
+      )) if param.maximizeIV && maximizeIV(pkmn, stat)
+    end
+  end
+
+  def self.raiseEV(pkmn, stat, value)
+    return pbJustRaiseEffortValues(pkmn, Bridge.getInternalStat(stat), value)
+  end
   
-  def pbEndScene
-    pbFadeOutAndHide(@sprites) { update }
-    pbDisposeSpriteHash(@sprites)
-    @viewport.dispose
+  def self.raiseIV(pkmn, stat, value)
+    valueToAdd = [
+      Bridge.ivStatLimit - pkmn.iv[Bridge.getInternalStat(stat)], value
+    ].min
+    pkmn.iv[Bridge.getInternalStat(stat)] += valueToAdd
+    return valueToAdd
   end
-end
-
-class PunchBagScreen
-  def initialize(scene)
-    @scene=scene
+  
+  def self.maximizeIV(pkmn, stat)
+    return Bridge.maximizeIV(pkmn, stat)
+  end
+  
+  def self.canIncreaseEV?(pkmn, stat)
+    return false if pkmn.ev[Bridge.getInternalStat(stat)] >= Bridge.evStatLimit
+    evTotal = 0
+    [
+      :HP, :ATTACK, :DEFENSE, :SPEED, :SPECIAL_ATTACK, :SPECIAL_DEFENSE
+    ].each { |s| evTotal += pkmn.ev[Bridge.getInternalStat(s)] }
+    return evTotal<Bridge.evLimit
+  end
+  
+  def self.canIncreaseIV?(pkmn, stat)
+    return pkmn.iv[Bridge.getInternalStat(stat)] < Bridge.ivStatLimit
+  end
+  
+  def self.hasMaxedIV?(pkmn, stat)
+    return Bridge.hasMaxedIV?(pkmn, stat)
   end
 
-  def pbStartScreen(pokemon,rounds)
-    @scene.pbStartScene(pokemon,rounds)
-    ret=@scene.pbMain
-    @scene.pbEndScene
-    return ret
-  end
-end
-
-def pbPunchBag(rounds, canCancel=true, onlyAblePokemon=true)
-  ret = nil
-  pbFadeOutIn(99999){
-    pokemonSelected = nil
-    loop do
-      onlyAblePokemon ? pbChooseAblePokemon(1,3) : pbChooseNonEggPokemon(1,3)
-      pokemonSelected = $Trainer.party[pbGet(1)] if pbGet(1)!=-1
-      break if pokemonSelected || canCancel
+  # Essentials multiversion layer
+  module Bridge
+    if defined?(Essentials)
+      MAJOR_VERSION = Essentials::VERSION.split(".")[0].to_i
+    elsif defined?(ESSENTIALS_VERSION)
+      MAJOR_VERSION = ESSENTIALS_VERSION.split(".")[0].to_i
+    elsif defined?(ESSENTIALSVERSION)
+      MAJOR_VERSION = ESSENTIALSVERSION.split(".")[0].to_i
+    else
+      MAJOR_VERSION = 0
     end
-    if pokemonSelected
-        scene=PunchBagScene.new
-        screen=PunchBagScreen.new(scene)
-        ret=screen.pbStartScreen(pokemonSelected,rounds)
+
+    @@audioNameHash = nil
+
+    module_function
+
+    def player
+      return $Trainer if MAJOR_VERSION < 20
+      return $player
     end
-  }
-  return ret
+
+    def message(string, &block)
+      return Kernel.pbMessage(string, &block) if MAJOR_VERSION < 20
+      return pbMessage(string, &block)
+    end
+    
+    def confirmMessage(string, &block)
+      return Kernel.pbConfirmMessage(string, &block) if MAJOR_VERSION < 20
+      return pbConfirmMessage(string, &block)
+    end
+
+    def setPokemonBottomOffset(sprite, pokemon)
+      case MAJOR_VERSION
+      when 0..15
+        pbPositionPokemonSprite(sprite, sprite.x, sprite.y)
+        sprite.x += 8 - sprite.bitmap.width/2 if sprite.bitmap  
+        sprite.y = adjustBattleSpriteY(sprite, pokemon.species, 0)  
+      when 16..19
+        sprite.setOffset(PictureOrigin::Bottom) 
+      else
+        sprite.setOffset(PictureOrigin::BOTTOM)
+      end   
+    end
+
+    def getInternalStat(stat)
+      return {
+        :HP              => PBStats::HP     ,
+        :ATTACK          => PBStats::ATTACK ,
+        :DEFENSE         => PBStats::DEFENSE,
+        :SPEED           => PBStats::SPEED  ,
+        :SPECIAL_ATTACK  => PBStats::SPATK  ,
+        :SPECIAL_DEFENSE => PBStats::SPDEF  ,
+      }.fetch(stat, stat) if MAJOR_VERSION < 19
+      return stat
+    end
+
+    def getStatName(stat)
+      case MAJOR_VERSION
+      when 0..15
+        return {
+          :HP              => "HP",
+          :ATTACK          => "Attack" ,
+          :DEFENSE         => "Defense",
+          :SPEED           => "Speed",
+          :SPECIAL_ATTACK  => "Special Attack",
+          :SPECIAL_DEFENSE => "Special Defense",
+        }[stat]
+      when 16..18
+        return PBStats.getName(getInternalStat(stat))
+      else
+        return GameData::Stat.get(stat).name
+      end
+    end
+
+    def evStatLimit
+      return case MAJOR_VERSION
+        when 0..15;   252
+        when 16..17;  PokeBattle_Pokemon::EVSTATLIMIT
+        when 18;      PokeBattle_Pokemon::EV_STAT_LIMIT
+        else          Pokemon::EV_STAT_LIMIT
+      end
+    end
+    
+    def evLimit
+      return case MAJOR_VERSION
+        when 0..15;   510
+        when 16..17;  PokeBattle_Pokemon::EVLIMIT
+        when 18;      PokeBattle_Pokemon::EV_LIMIT
+        else          Pokemon::EV_LIMIT
+      end
+    end
+    
+    def ivStatLimit
+      return case MAJOR_VERSION
+        when 0..17; 31
+        when 18;    PokeBattle_Pokemon::IV_STAT_LIMIT
+        else        Pokemon::IV_STAT_LIMIT
+      end
+    end
+
+    def maximizeIV(pkmn, stat)
+      if MAJOR_VERSION < 18
+        return false if pkmn.iv[Bridge.getInternalStat(stat)] == ivStatLimit
+        pkmn.iv[Bridge.getInternalStat(stat)] = ivStatLimit
+      else
+        return false if pkmn.ivMaxed[Bridge.getInternalStat(stat)]
+        pkmn.ivMaxed[Bridge.getInternalStat(stat)] = true
+      end
+      return true
+    end
+    
+    def hasMaxedIV?(pkmn, stat)
+      return !PunchBag.canIncreaseIV?(pkmn, stat) if MAJOR_VERSION < 18
+      return pkmn.ivMaxed[Bridge.getInternalStat(stat)]
+    end
+
+    def getAudioName(baseName)
+      if !@@audioNameHash
+        if MAJOR_VERSION < 17
+          @@audioNameHash = {
+            "Battle damage normal" => "normaldamage"  ,
+            "Battle damage super"  => "superdamage"   ,
+            "Battle damage weak"   => "notverydamage" ,
+            "Pkmn move learnt"     => "itemlevel"     ,
+          }
+        else
+          @@audioNameHash = {}
+        end
+      end
+      return @@audioNameHash.fetch(baseName, baseName)  
+    end
+  end
 end
