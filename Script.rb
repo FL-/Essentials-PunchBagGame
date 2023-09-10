@@ -9,7 +9,8 @@
 #== INSTALLATION ===============================================================
 #
 # Put it above main OR convert into a plugin. Create "Punch Bag" folder at 
-# Graphics/Pictures and put the pictures (may works with other sizes):
+# Graphics/UI and put the pictures (may works with other sizes):
+# -  64x64  arrow 
 # - 262x20  bar
 # - 512x288 bg
 # - 104x256 punchbag 
@@ -51,7 +52,7 @@
 if defined?(PluginManager) && !PluginManager.installed?("Punch Bag Game")
   PluginManager.register({                                                 
     :name    => "Punch Bag Game",                                        
-    :version => "1.1",                                                     
+    :version => "1.2",                                                     
     :link    => "https://www.pokecommunity.com/showthread.php?t=346235",
     :credits => "FL"
   })
@@ -136,29 +137,31 @@ module PunchBag
   end
 
   class Scene
+    # Time is in seconds. Speed is in pixels per seconds
     # Size of the valid bar points between the left and the center
     BAR_LEFT_SIZE = 128 
-    ARROW_SPEED = 16
+    ARROW_SPEED = 640
+    ARROW_SCORE_DISTANCE = 16 # -1 for every this distance from center
     MAX_SCORE = 5
     MIN_SCORE = 1
       
-    BAG_SPEED_ARRAY = [2,4,8]
+    BAG_SPEED_ARRAY = [80,120,160]
     BAG_ANGLES_ARRAY = [0,16,32,64]
-    POKEMON_SPEED = 16
+    POKEMON_SPEED = 640
     POKEMON_DISTANCE = 64
-    WAIT_ANIMATION_FRAME = 8
+    WAIT_ANIMATION_TIME = 0.2
     
     def pbStartScene(pkmn,rounds)
       @sprites={} 
       @viewport=Viewport.new(0,0,Graphics.width,Graphics.height)
       @viewport.z=99999
       @sprites["field"]=IconSprite.new(0,0,@viewport)
-      @sprites["field"].setBitmap("Graphics/Pictures/Punch Bag/bg")
+      @sprites["field"].setBitmap("Graphics/UI/Punch Bag/bg")
       @sprites["field"].y=-48
       # An extra background. Used because the first one haven't the screen size, 
       # so a small part can be seen below window.
       @sprites["fieldBack"]=IconSprite.new(0,0,@viewport)
-      @sprites["fieldBack"].setBitmap("Graphics/Pictures/Punch Bag/bg")
+      @sprites["fieldBack"].setBitmap("Graphics/UI/Punch Bag/bg")
       @sprites["fieldBack"].y=@sprites["field"].bitmap.height
       @sprites["fieldBack"].z=@sprites["field"].z-1 # Under Field.
       @sprites["scorebox"]=Window_AdvancedTextPokemon.new
@@ -178,7 +181,7 @@ module PunchBag
       @sprites["starbox"].y=@sprites["scorebox"].y-@sprites["starbox"].height
       @sprites["starbox"].z=2
       @sprites["punchbag"]=IconSprite.new(0,0,@viewport)  
-      @sprites["punchbag"].setBitmap("Graphics/Pictures/Punch Bag/punch_bag")
+      @sprites["punchbag"].setBitmap("Graphics/UI/Punch Bag/punch_bag")
       @sprites["punchbag"].x=Graphics.width/2
       # The bag center is the rope
       @sprites["punchbag"].ox=@sprites["punchbag"].bitmap.width/2 
@@ -190,12 +193,12 @@ module PunchBag
       @sprites["pokemonback"].y += 228
       @sprites["pokemonback"].z=1
       @sprites["bar"]=IconSprite.new(0,0,@viewport)
-      @sprites["bar"].setBitmap("Graphics/Pictures/Punch Bag/bar")
+      @sprites["bar"].setBitmap("Graphics/UI/Punch Bag/bar")
       @sprites["bar"].x=@sprites["barbox"].x+(
         @sprites["barbox"].width-@sprites["bar"].bitmap.width
       )/2
       @sprites["bar"].y=@sprites["barbox"].y+44
-      arrow=AnimatedBitmap.new("Graphics/Pictures/Arrow")
+      arrow=AnimatedBitmap.new("Graphics/UI/Punch Bag/arrow")
       @sprites["bar"].z=3
       @sprites["arrow"]=BitmapSprite.new(
         arrow.bitmap.width/2,arrow.bitmap.height/2,@viewport
@@ -214,7 +217,7 @@ module PunchBag
       @sprites["arrow"].y = @sprites["bar"].y-28
       for i in 0...5
         @sprites["star#{i}"]=IconSprite.new(0,0,@viewport)
-        @sprites["star#{i}"].setBitmap("Graphics/Pictures/Punch Bag/star")
+        @sprites["star#{i}"].setBitmap("Graphics/UI/Punch Bag/star")
         @sprites["star#{i}"].x=32+(@sprites["star#{i}"].bitmap.width+52)*i
         @sprites["star#{i}"].y=@sprites["starbox"].y+12
         @sprites["star#{i}"].z=3
@@ -231,11 +234,15 @@ module PunchBag
       @shoots = 0
       @endGame=false
       @nextAngle=0
+      @lastAngle=0
+      @angleDirection=1
       @bagAnimating=false
-      @bagWaitFrame=0
+      @bagWaitTime=0
       @pokemonAnimating=false
-      @pokemonWaitFrame=0
+      @pokemonWaitTime=0
       @animating=false
+      @arrowX = @sprites["arrow"].x
+      @pokemonX = @sprites["pokemonback"].x
       pbSetSystemFont(@sprites["overlay"].bitmap)
       pbDrawText
       pbFadeInAndShow(@sprites) { update }
@@ -261,12 +268,11 @@ module PunchBag
     end  
 
     def pbMain(canCancel)
-      @frameCount=-1
+      @timeCount=0
       loop do
         Graphics.update
         Input.update
         self.update
-        @frameCount+=1
         if @endGame
           return @score if !@animating
         else  
@@ -277,26 +283,28 @@ module PunchBag
             pbPlayCursorSE
             break
           end
-          arrowX = @sprites["arrow"].x
           if Input.trigger?(Input::C) && @lastScore==0
-            @lastScore = BAR_LEFT_SIZE - (
-              arrowX>@arrowXMiddle ? arrowX-@arrowXMiddle : @arrowXMiddle-arrowX
-            )
-            @lastScore=[
-              (@lastScore - BAR_LEFT_SIZE)/ARROW_SPEED + MAX_SCORE,MIN_SCORE
-            ].max
+            distance = BAR_LEFT_SIZE 
+            if @arrowX>@arrowXMiddle
+              distance -= @arrowX-@arrowXMiddle
+            else 
+              distance -= @arrowXMiddle-@arrowX
+            end
+            @lastScore=[(
+              (distance - BAR_LEFT_SIZE)/ARROW_SCORE_DISTANCE.to_f + MAX_SCORE
+            ).round, MIN_SCORE].max
             @sprites["arrow"].visible = false
           end
           if @moving
-            if (
-              arrowX==@arrowXMiddle-BAR_LEFT_SIZE || 
-              arrowX==@arrowXMiddle+BAR_LEFT_SIZE
+            @right = true  if @arrowX<=@arrowXMiddle-BAR_LEFT_SIZE
+            @right = false if @arrowX>=@arrowXMiddle+BAR_LEFT_SIZE            
+            @arrowX += (
+              (@right ? ARROW_SPEED : -ARROW_SPEED)*Bridge.delta
             )
-              @right = !@right
-            end
-            @sprites["arrow"].x+= @right ? ARROW_SPEED : -ARROW_SPEED
+            @sprites["arrow"].x = @arrowX.round
           end
         end
+        @timeCount+=Bridge.delta
       end
       return nil
     end
@@ -328,11 +336,13 @@ module PunchBag
       when -2; BAG_ANGLES_ARRAY[1]
       else;    BAG_ANGLES_ARRAY[0]
       end
+      @angleDirection = 1
       lastScoreFromMax==0 ? 64 : 32
       @bagSpeedIndex = lastScoreFromMax==0 ? 2 : 0
       @pokemonAnimating=true
       @pokemonSpeed=POKEMON_SPEED
-      @pokemonDestiny=@sprites["pokemonback"].x+POKEMON_DISTANCE
+      @pokemonX=@pokemonX.floor
+      @pokemonDestiny=@pokemonX+POKEMON_DISTANCE
       @scoreComputed=false
     end  
     
@@ -346,37 +356,42 @@ module PunchBag
     end  
     
     def updateAnimationBag
-      return if @bagWaitFrame>@frameCount
-      angle=@sprites["punchbag"].angle
-      if(angle==@nextAngle)
-        if(@nextAngle==0)
+      return if @bagWaitTime>@timeCount
+      angle = @sprites["punchbag"].angle
+      angle = @nextAngle if reached(angle, @nextAngle, @angleDirection)
+      if angle == @nextAngle
+        if @nextAngle==0
           if @bagSpeedIndex>0 # Max Score
             @nextAngle=-BAG_ANGLES_ARRAY[-2]
           else
             @bagAnimating=false
           end  
         else  
-          if (@nextAngle<0) # Reverse direction
+          if @nextAngle<0 # Reverse direction
             @nextAngle=BAG_ANGLES_ARRAY[-3]
           else
             @nextAngle=0
           end
-          @bagWaitFrame=@frameCount+WAIT_ANIMATION_FRAME
+          @bagWaitTime=@timeCount+WAIT_ANIMATION_TIME-0.001
           computeScore if !@scoreComputed 
-        end  
+        end
+        @angleDirection = @nextAngle>angle ? 1 : -1
       else
-        # Cut the speed to half every time that bag reach at middle
-        @bagSpeedIndex-=1 if angle==0 && @bagSpeedIndex!=0 
-        speed=BAG_SPEED_ARRAY[@bagSpeedIndex]
-        direction = @nextAngle>angle ? 1 : -1
-        @sprites["punchbag"].angle+=speed*direction
+        # Cut the speed to half every time that bag cross middle
+        if (@lastAngle < 0) != (angle < 0) && @bagSpeedIndex!=0 
+          @bagSpeedIndex-=1 
+        end
+        @lastAngle = angle
+        angle+=BAG_SPEED_ARRAY[@bagSpeedIndex] * @angleDirection * Bridge.delta
       end
+      @sprites["punchbag"].angle = angle
     end  
     
     def updateAnimationPokemon
-      return if @pokemonWaitFrame>@frameCount
-      @sprites["pokemonback"].x+=@pokemonSpeed
-      if @sprites["pokemonback"].x==@pokemonDestiny
+      return if @pokemonWaitTime>@timeCount
+      @pokemonX+=@pokemonSpeed*Bridge.delta
+      if reached(@pokemonX, @pokemonDestiny, @pokemonSpeed)
+        @pokemonX = @pokemonDestiny
         if @pokemonSpeed>0 # Set thing to move backward
           # SE for hit the bag
           pbSEPlay(Bridge.getAudioName(getHitSEName(@lastScore-MAX_SCORE)))
@@ -386,13 +401,19 @@ module PunchBag
             @bagAnimating=true
           end
           @pokemonSpeed/=-2
-          @pokemonDestiny=@sprites["pokemonback"].x-POKEMON_DISTANCE
-          @pokemonWaitFrame=@frameCount+WAIT_ANIMATION_FRAME
+          @pokemonDestiny=@pokemonX-POKEMON_DISTANCE
+          @pokemonWaitTime=@timeCount+WAIT_ANIMATION_TIME-0.001
         else
           @pokemonAnimating=false
         end
       end  
-    end  
+      @sprites["pokemonback"].x = @pokemonX.floor
+    end
+
+    # An >= who works with negative steps/speed
+    def reached(value, destiny, sign)
+      return sign < 0 ? value <= destiny : value >= destiny
+    end
 
     def getHitSEName(lastScoreFromMax)
       return case lastScoreFromMax
@@ -526,11 +547,16 @@ module PunchBag
 
     module_function
 
+    def delta
+      return 0.025 if MAJOR_VERSION < 21
+      return Graphics.delta
+    end
+
     def player
       return $Trainer if MAJOR_VERSION < 20
       return $player
     end
-
+    
     def message(string, &block)
       return Kernel.pbMessage(string, &block) if MAJOR_VERSION < 20
       return pbMessage(string, &block)
