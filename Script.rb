@@ -10,7 +10,7 @@
 #
 # Put it above main OR convert into a plugin. Create "Punch Bag" folder at 
 # Graphics/UI and put the pictures (may works with other sizes):
-# -  64x64  arrow 
+# -  32x32  arrow 
 # - 262x20  bar
 # - 512x288 bg
 # - 104x256 punchbag 
@@ -52,7 +52,7 @@
 if defined?(PluginManager) && !PluginManager.installed?("Punch Bag Game")
   PluginManager.register({                                                 
     :name    => "Punch Bag Game",                                        
-    :version => "1.2",                                                     
+    :version => "1.2.1",                                                     
     :link    => "https://www.pokecommunity.com/showthread.php?t=346235",
     :credits => "FL"
   })
@@ -198,23 +198,15 @@ module PunchBag
         @sprites["barbox"].width-@sprites["bar"].bitmap.width
       )/2
       @sprites["bar"].y=@sprites["barbox"].y+44
-      arrow=AnimatedBitmap.new("Graphics/UI/Punch Bag/arrow")
       @sprites["bar"].z=3
-      @sprites["arrow"]=BitmapSprite.new(
-        arrow.bitmap.width/2,arrow.bitmap.height/2,@viewport
-      )
-      @sprites["arrow"].bitmap.blt(0,0,arrow.bitmap,Rect.new(
-        0,
-        @sprites["arrow"].bitmap.height,
-        @sprites["arrow"].bitmap.width,
-        @sprites["arrow"].bitmap.height
-      ))
-      @sprites["arrow"].z=3
+      @sprites["arrow"]=IconSprite.new(0,0,@viewport)
+      @sprites["arrow"].setBitmap("Graphics/UI/Punch Bag/arrow")
       @arrowXMiddle = (
         @sprites["bar"].x - @sprites["arrow"].bitmap.width/2 + 4 + BAR_LEFT_SIZE
       )
       @sprites["arrow"].x = @arrowXMiddle-BAR_LEFT_SIZE
-      @sprites["arrow"].y = @sprites["bar"].y-28
+      @sprites["arrow"].y = @sprites["bar"].y-24
+      @sprites["arrow"].z=3
       for i in 0...5
         @sprites["star#{i}"]=IconSprite.new(0,0,@viewport)
         @sprites["star#{i}"].setBitmap("Graphics/UI/Punch Bag/star")
